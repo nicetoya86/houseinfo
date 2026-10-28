@@ -1,0 +1,122 @@
+{
+  "name": "viewing-guide-generate",
+  "__comment": "Design Ref: §11.1 module-3 — 신규 매물 등록 이벤트(파이프라인 A 완료 후) → 카카오 geocoding+장소검색 → MOLIT 실거래가(LAWD_CD 매핑 TODO) → Gemini 생성 → viewing_guides upsert",
+  "active": false,
+  "nodes": [
+    {
+      "id": "webhook-new-property",
+      "name": "New Property Webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [0, 0],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "viewing-guide/generate",
+        "__comment": "파이프라인 A(onbid-collect)의 Supabase upsert 이후 이 웹훅을 호출하도록 연결 필요. body: { propertyId, address, category, appraisalValue }"
+      }
+    },
+    {
+      "id": "kakao-geocode",
+      "name": "Kakao Geocode Address",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [250, 0],
+      "parameters": {
+        "method": "GET",
+        "url": "https://dapi.kakao.com/v2/local/search/address.json",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "Authorization", "value": "=KakaoAK {{ $env.KAKAO_REST_API_KEY }}" }
+          ]
+        },
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [{ "name": "query", "value": "={{ $json.body.address }}" }]
+        }
+      }
+    },
+    {
+      "id": "kakao-category-search",
+      "name": "Kakao Category Search",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [500, 0],
+      "parameters": {
+        "jsCode": "// Design Ref: §3.1 nearbyFacilities — 카카오 카테고리 검색(반경 1km), 카테고리 그룹코드: SW8(지하철), MT1(대형마트), HP8(병원), SC4(학교)\nconst geo = $input.first().json.documents?.[0];\nif (!geo) {\n  return [{ json: { ...$('New Property Webhook').first().json.body, lat: null, lng: null, nearbyFacilities: [] } }];\n}\nconst lat = Number(geo.y);\nconst lng = Number(geo.x);\nconst categories = [\n  { code: 'SW8', label: '지하철' },\n  { code: 'MT1', label: '마트' },\n  { code: 'HP8', label: '병원' },\n  { code: 'SC4', label: '학교' },\n];\nconst apiKey = $env.KAKAO_REST_API_KEY;\nconst facilities = [];\nfor (const cat of categories) {\n  const url = `https://dapi.kakao.com/v2/local/search/category.json?category_group_code=${cat.code}&x=${lng}&y=${lat}&radius=1000&sort=distance`;\n  const res = await fetch(url, { headers: { Authorization: `KakaoAK ${apiKey}` } });\n  const data = await res.json();\n  for (const doc of (data.documents ?? []).slice(0, 5)) {\n    facilities.push({ category: cat.label, name: doc.place_name, distanceMeters: Number(doc.distance) });\n  }\n}\nreturn [{ json: { ...$('New Property Webhook').first().json.body, lat, lng, nearbyFacilities: facilities } }];"
+      }
+    },
+    {
+      "id": "molit-rtms-lookup",
+      "name": "MOLIT RTMS Lookup (TODO)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [750, 0],
+      "parameters": {
+        "jsCode": "// TODO: 국토교통부 실거래가 API(getRTMSDataSvcAptTrade)는 LAWD_CD(법정동코드, 전국 수천개) 매핑이 필요.\n// 매핑 테이블 미보유로 1차 범위에서는 빈 배열 반환. 추후 법정동코드 테이블 확보 후 실제 호출로 교체.\n// 참고: https://www.data.go.kr (국토교통부_아파트매매 실거래자료)\nreturn [{ json: { ...$input.first().json, nearbyPrices: [] } }];"
+      }
+    },
+    {
+      "id": "gemini-generate",
+      "name": "Gemini Generate Content",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1000, 0],
+      "parameters": {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash-latest:generateContent",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-goog-api-key", "value": "={{ $env.GEMINI_API_KEY }}" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ { contents: [{ parts: [{ text: `다음 부동산 경매/공매 매물의 임장(현장답사) 체크리스트와 동네 인프라 요약을 생성해줘.\\n\\n소재지: ${$json.address}\\n물건종류: ${$json.category}\\n감정가: ${$json.appraisalValue}원\\n반경 1km 주변 시설: ${JSON.stringify($json.nearbyFacilities)}\\n\\n출력은 JSON으로만: {\\\"infrastructureSummary\\\": \\\"2-3문장 요약\\\", \\\"checklist\\\": [\\\"체크리스트 항목1\\\", \\\"...최소 5개\\\"]}` }] }] } }}"
+      }
+    },
+    {
+      "id": "parse-gemini-response",
+      "name": "Parse Gemini Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1250, 0],
+      "parameters": {
+        "jsCode": "// Design Ref: §3.3 quality_flag — 체크리스트 5항목 미만이면 재생성 플래그\nconst prev = $('MOLIT RTMS Lookup (TODO)').first().json;\nconst raw = $input.first().json.candidates?.[0]?.content?.parts?.[0]?.text ?? '{}';\nlet parsed;\ntry {\n  const jsonText = raw.replace(/```json|```/g, '').trim();\n  parsed = JSON.parse(jsonText);\n} catch {\n  parsed = { infrastructureSummary: '', checklist: [] };\n}\nconst checklist = Array.isArray(parsed.checklist) ? parsed.checklist : [];\nreturn [{\n  json: {\n    property_id: prev.propertyId,\n    infrastructure_summary: parsed.infrastructureSummary ?? '',\n    checklist,\n    nearby_prices: prev.nearbyPrices ?? [],\n    nearby_facilities: prev.nearbyFacilities ?? [],\n    coordinates: prev.lat != null ? { lat: prev.lat, lng: prev.lng } : null,\n    generated_by: 'gemini-flash',\n    quality_flag: checklist.length >= 5 ? 'ok' : 'needs_regeneration',\n  },\n}];"
+      }
+    },
+    {
+      "id": "supabase-upsert-guide",
+      "name": "Upsert viewing_guides",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1500, 0],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.SUPABASE_URL }}/rest/v1/viewing_guides?on_conflict=property_id",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "apikey", "value": "={{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Authorization", "value": "=Bearer {{ $env.SUPABASE_SERVICE_ROLE_KEY }}" },
+            { "name": "Prefer", "value": "resolution=merge-duplicates" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ $json }}"
+      }
+    }
+  ],
+  "connections": {
+    "New Property Webhook": { "main": [[{ "node": "Kakao Geocode Address", "type": "main", "index": 0 }]] },
+    "Kakao Geocode Address": { "main": [[{ "node": "Kakao Category Search", "type": "main", "index": 0 }]] },
+    "Kakao Category Search": { "main": [[{ "node": "MOLIT RTMS Lookup (TODO)", "type": "main", "index": 0 }]] },
+    "MOLIT RTMS Lookup (TODO)": { "main": [[{ "node": "Gemini Generate Content", "type": "main", "index": 0 }]] },
+    "Gemini Generate Content": { "main": [[{ "node": "Parse Gemini Response", "type": "main", "index": 0 }]] },
+    "Parse Gemini Response": { "main": [[{ "node": "Upsert viewing_guides", "type": "main", "index": 0 }]] }
+  }
+}
