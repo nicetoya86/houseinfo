@@ -23,7 +23,13 @@ function getFileExtension(file: File): string {
 }
 
 export async function POST(request: NextRequest) {
-  const form = await request.formData();
+  const form = await request.formData().catch(() => null);
+  if (!form) {
+    return NextResponse.json(
+      { error: { code: 'INVALID_UPLOAD', message: 'multipart/form-data 요청이 필요합니다' } },
+      { status: 400 },
+    );
+  }
   const propertyId = form.get('propertyId');
   const file = form.get('file');
 
