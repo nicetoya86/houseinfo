@@ -1,4 +1,5 @@
 // Design Ref: §5.1/§11.1 — 임장정보 페이지, Server Component가 캐시만 읽음
+import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { fetchPropertyById } from '@/features/properties/queries';
 import { fetchViewingGuideByPropertyId } from '@/features/viewing-guide/queries';
@@ -25,9 +26,12 @@ export default async function ViewingGuidePage({
         <span className="border-b-2 border-blue-600 px-3 py-2 text-sm font-medium text-blue-600">
           임장정보
         </span>
-        <span aria-disabled className="cursor-not-allowed px-3 py-2 text-sm text-gray-300">
+        <Link
+          href={`/properties/${id}/analysis`}
+          className="px-3 py-2 text-sm text-gray-500 hover:text-gray-900"
+        >
           권리분석
-        </span>
+        </Link>
       </nav>
 
       {guide ? <ViewingGuideContent guide={guide} /> : <ViewingGuideEmptyState />}

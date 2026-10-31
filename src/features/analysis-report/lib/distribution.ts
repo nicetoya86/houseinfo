@@ -18,15 +18,26 @@ export function calculateDistribution(rights: Right[], bidAmount: number): Distr
     const totalClaim = group.reduce((sum, r) => sum + r.amount, 0);
     const payable = Math.min(remaining, totalClaim);
 
-    for (const right of group) {
-      const paidAmount =
-        totalClaim === 0 ? 0 : Math.floor((right.amount / totalClaim) * payable);
-      entries.push({
-        right,
-        claimedAmount: right.amount,
-        paidAmount,
-        shortfall: right.amount - paidAmount,
-      });
+    const groupEntries = group.map((right) => ({
+      right,
+      claimedAmount: right.amount,
+      paidAmount: totalClaim === 0 ? 0 : Math.floor((right.amount / totalClaim) * payable),
+      shortfall: 0,
+    }));
+    const distributed = groupEntries.reduce((sum, e) => sum + e.paidAmount, 0);
+    // D-03: floor 안분으로 생긴 잔여분은 뒤에서부터 각 항목의 채권액 한도 내에서 배정하고,
+    // 한도를 넘는 초과분은 앞 항목으로 이월해 paidAmount가 claimedAmount를 넘지 않게 한다.
+    let residue = payable - distributed;
+    for (let i = groupEntries.length - 1; residue > 0 && i >= 0; i--) {
+      const entry = groupEntries[i];
+      const capacity = entry.claimedAmount - entry.paidAmount;
+      const add = Math.min(capacity, residue);
+      entry.paidAmount += add;
+      residue -= add;
+    }
+    for (const entry of groupEntries) {
+      entry.shortfall = entry.right.amount - entry.paidAmount;
+      entries.push(entry);
     }
 
     remaining -= payable;

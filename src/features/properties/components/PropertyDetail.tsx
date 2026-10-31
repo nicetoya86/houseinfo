@@ -3,8 +3,6 @@ import Link from 'next/link';
 import type { Property } from '@/types/property';
 import { CATEGORY_LABELS, formatFailCount, formatWon } from '@/features/properties/format';
 
-const DISABLED_TABS = ['권리분석'];
-
 export function PropertyDetail({ property }: { property: Property }) {
   return (
     <div className="space-y-6">
@@ -18,11 +16,12 @@ export function PropertyDetail({ property }: { property: Property }) {
         >
           임장정보
         </Link>
-        {DISABLED_TABS.map((tab) => (
-          <span key={tab} aria-disabled className="cursor-not-allowed px-3 py-2 text-sm text-gray-300">
-            {tab}
-          </span>
-        ))}
+        <Link
+          href={`/properties/${property.id}/analysis`}
+          className="px-3 py-2 text-sm text-gray-500 hover:text-gray-900"
+        >
+          권리분석
+        </Link>
       </nav>
 
       <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2" data-testid="property-basic-info">

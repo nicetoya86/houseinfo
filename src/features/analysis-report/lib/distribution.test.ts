@@ -43,4 +43,19 @@ describe('calculateDistribution', () => {
     expect(result[0].paidAmount).toBe(300_000_000);
     expect(result[0].shortfall).toBe(200_000_000);
   });
+
+  it('D-03 반올림 잔여분: 동순위 3건 각 1원, 낙찰가 2원 → 그룹 합계는 payable과 같고 개별 paidAmount는 claimedAmount 초과 불가', () => {
+    const rights = [
+      right({ priority: 1, amount: 1 }),
+      right({ priority: 1, amount: 1 }),
+      right({ priority: 1, amount: 1 }),
+    ];
+    const result = calculateDistribution(rights, 2);
+    const totalPaid = result.reduce((sum, e) => sum + e.paidAmount, 0);
+    expect(totalPaid).toBe(2);
+    for (const entry of result) {
+      expect(entry.paidAmount).toBeLessThanOrEqual(entry.claimedAmount);
+      expect(entry.shortfall).toBeGreaterThanOrEqual(0);
+    }
+  });
 });
