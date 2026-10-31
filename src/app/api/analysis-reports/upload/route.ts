@@ -1,6 +1,7 @@
 // Design Ref: §4.2, §6, §7 — POST /api/analysis-reports/upload (등기부등본 업로드 + OCR + 캐싱)
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabaseAdmin';
+import { requireUser } from '@/lib/requireUser';
 import { extractRegistryDocument } from '@/lib/gemini';
 import { determineBaseRightIndex, getAssumedBurdens } from '@/features/analysis-report/lib/baseRight';
 import { upsertAnalysisReport } from '@/features/analysis-report/queries';
@@ -23,6 +24,9 @@ function getFileExtension(file: File): string {
 }
 
 export async function POST(request: NextRequest) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
+
   const form = await request.formData().catch(() => null);
   if (!form) {
     return NextResponse.json(

@@ -2,6 +2,7 @@
 // Design Ref: §5.3/§5.4 — 등기부등본 업로드 + 로딩 상태, OCR 실패 시 재업로드 안내
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
+import { authFetch } from '@/lib/authFetch';
 
 const ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/png'];
 
@@ -20,7 +21,7 @@ export function RightsUploadForm({ propertyId }: { propertyId: string }) {
     form.append('file', file);
 
     try {
-      const response = await fetch('/api/analysis-reports/upload', {
+      const response = await authFetch('/api/analysis-reports/upload', {
         method: 'POST',
         body: form,
       });

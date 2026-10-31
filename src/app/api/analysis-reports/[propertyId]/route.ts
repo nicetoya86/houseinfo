@@ -1,11 +1,14 @@
 // Design Ref: §4.2 — GET /api/analysis-reports/:propertyId
 import { NextResponse } from 'next/server';
+import { requireUser } from '@/lib/requireUser';
 import { fetchAnalysisReportByPropertyId } from '@/features/analysis-report/queries';
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ propertyId: string }> },
 ) {
+  const denied = await requireUser(request);
+  if (denied) return denied;
   const { propertyId } = await params;
   try {
     const report = await fetchAnalysisReportByPropertyId(propertyId);
