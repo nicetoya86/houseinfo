@@ -53,11 +53,13 @@ export async function POST(request: NextRequest) {
   const buffer = Buffer.from(await file.arrayBuffer());
   const filePath = `${propertyId}/${Date.now()}.${getFileExtension(file)}`;
 
+  let uploaded = false;
   try {
     const { error: uploadError } = await supabaseAdmin.storage
       .from(BUCKET)
       .upload(filePath, buffer, { contentType: file.type });
     if (uploadError) throw uploadError;
+    uploaded = true;
 
     const extraction = await extractRegistryDocument(buffer, file.type);
 
@@ -103,6 +105,10 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ data: report }, { status: 201 });
   } catch (error) {
     console.error('[analysis-reports/upload] failed:', error);
+    // 고아 객체 방지: DB에 참조되지 않은 업로드 파일 삭제 (best-effort)
+    if (uploaded) {
+      await supabaseAdmin.storage.from(BUCKET).remove([filePath]).catch(() => {});
+    }
     return NextResponse.json(
       { error: { code: 'INTERNAL_ERROR', message: 'Internal error' } },
       { status: 500 },
